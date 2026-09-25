@@ -125,24 +125,60 @@ One proposal for each milestone 1 smell you did not fix.
 
 ### Proposal A (not coded)
 
-**The problem.** Name it.
+**The problem.** Speculative over-abstraction in notification construction. The module
+maintains a plugin registry, generic builder, discovery API, factory, and shared config
+even though the only channel name and implementation are `email` and `EmailChannel`.
 
-**The decomposition.** What are the pieces, what does each own, and where do the rules live?
+**The decomposition.** Keep `NotificationChannel` as the small interface that owns the
+operation the manager needs, and keep `EmailChannel` as the implementation that owns
+email formatting and the from-address. Have the application entry point construct an
+`EmailChannel` and inject that `NotificationChannel` into `ReservationManager`. Remove
+`ChannelName`, the global `builders` map, `registerChannel`, `registeredChannels`, and
+`createNotificationChannel`. If runtime channel selection becomes a real requirement,
+put that selection in the application entry point, where configuration is read, rather
+than in a global registry inside the domain module.
 
-**One cost.** Something this actually costs. "No real downside" is not a cost.
+**One cost.** This changes the `ReservationManager` constructor, so every caller and test
+fixture that constructs a manager must either pass a channel or deliberately use a
+documented default. If runtime-loaded third-party channels are required later, a real
+factory or registry would have to be introduced then.
 
 ### Proposal B (not coded)
 
-**The problem.**
+**The problem.** Primitive obsession/data clump for time intervals. Separate numeric
+`start` and `end` values travel through requests, bookings, availability queries, and
+overlap calculations, while no type guarantees that an interval is valid.
 
-**The decomposition.**
+**The decomposition.** Introduce a `TimeSlot` value object containing `start` and `end`.
+Its constructor or creation function enforces whole-minute values and `end > start`; its
+methods own `duration`, `overlaps`, and clipping to another slot. Replace the separate
+time fields in `ReservationRequest` and `Booking` with a `slot`, and change availability
+functions to accept `TimeSlot` values for both the requested window and existing
+bookings. Building-hours and maximum-duration policies remain in request validation,
+because they are business policies rather than invariants of every possible time slot.
 
-**One cost.**
+**One cost.** This is an API and data-shape migration: callers, fixtures, storage
+serialization, validation, reporting, and formatting must all move from `.start`/`.end`
+to `.slot`. It adds allocation and conversion at system boundaries, so it should be done
+only if interval rules continue to grow.
 
 ### The thing that looks smelly but is fine
 
-**What it is.** File and method.
+**What it is.** `ReservationManager.createBooking` in
+`src/reservationManager.ts` (lines 57--95) looks like a long method because it performs
+the visible steps of the entire booking use case.
 
-**Why it is fine.** Defend it with properties of the code, not with its line count.
+**Why it is fine.** It is a controller that reads as one linear workflow: find the room,
+delegate request validation, reject conflicts, assemble the booking, delegate storage,
+and dispatch confirmation. Detailed validation is already in
+`validateReservationRequest`, persistence is behind `StorageProvider`, pricing is in
+`calculatePrice`, and sending is behind `NotificationChannel`. The method coordinates
+these pieces without implementing their internal algorithms, and all of its steps serve
+the single reason to change of creating a booking.
 
-**What would flip your verdict.** Name the change that would turn this into a real problem.
+**What would flip your verdict.** I would call it a real long-method/God-method problem if
+new features put their detailed rules inline here--for example, if `createBooking`
+started branching over payment methods, building-specific availability policies,
+waitlist promotion, and several notification formats. Those independent algorithms and
+reasons to change would need their own collaborators, leaving this method to coordinate
+them.
