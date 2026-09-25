@@ -91,15 +91,31 @@ swap booking and candidate values, and the type checker cannot detect either mis
 
 One fix, behavior preserved, suite green, zero test edits.
 
-**Which smell you attacked.** And why that one.
+**Which smell you attacked.** Duplication over reuse in revenue reporting. I chose it
+because pricing is a business rule with an existing authoritative result on `Booking`,
+and leaving a second implementation creates a direct risk that reports disagree with
+what customers were charged.
 
-**What changed.** Files and methods you touched, and what the code does differently now.
+**What changed.** In `src/reportGenerator.ts`, `ReportGenerator.revenue` now reads
+`booking.priceCents` instead of calling its own `priceOf` implementation. I removed that
+private method, its `durationOf` helper, the five duplicated pricing constants, and the
+now-unused `Booking` import. Revenue totals now report the price stored when the booking
+was created rather than independently recalculating it.
 
-**What you deliberately did not touch.** Name the scope line you drew and why you drew it
-there. "I ran out of time" is not a scope line.
+**What you deliberately did not touch.** My scope line was the reporting copy of the
+pricing policy: replace its source of price and delete only code made dead by that
+replacement. I did not redesign `ReservationManager.calculatePrice`, introduce a new
+pricing service, change occupancy/window filtering, or address the notification and
+time-primitive smells. Those changes are not required to establish one authoritative
+price and would enlarge a behavior-preserving fix.
 
-**How you know behavior is preserved.** Point at the suite, say what it actually covers, and
-say what it would not catch.
+**How you know behavior is preserved.** All 39 existing tests pass and `npm run
+typecheck` passes, with zero test edits. The suite covers base, premium, long-booking,
+and evening prices; revenue totals, averages, per-room totals, and exclusion of cancelled
+bookings; and occupancy behavior. The reporting test also compares revenue with the
+created bookings' `priceCents`. It would not catch a future pricing rule that computes
+the wrong value consistently before storing it, nor reporting behavior for malformed
+bookings inserted directly into storage with an invalid `priceCents`.
 
 ---
 
